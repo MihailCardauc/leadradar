@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+.firecrawl/
+node_modules/
+.next/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+.supabase/
+tmp/
+.leadradar/

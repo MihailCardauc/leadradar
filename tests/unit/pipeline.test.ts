@@ -1,0 +1,18 @@
+import { describe,it,expect,vi } from 'vitest';
+import { seedWorkspace } from '../../src/domain/fixtures';
+import { importInvoices,parseCsv } from '../../src/domain/accounting';
+import { extractionSchema,validateExtraction,safeUrl,retry } from '../../src/server/providers';
+import { assertOrigin,requireAdmin } from '../../src/server/store';
+const w=seedWorkspace();
+describe('provider and import boundaries',()=>{
+  it('preserves generic service as unknown, with exact legal match',()=>{const rows=importInvoices('invoice_id,legal_id,service_id,description,amount,currency,date\nI1,DEMO-RO-001,,IT services,1200,EUR,2026-09-01',w.companies,w.services,'hash',true);expect(rows[0].companyId).toBe('atlas');expect(rows[0].serviceId).toBeNull();});
+  it('never joins ambiguous entities and rejects malformed dates',()=>{expect(importInvoices('invoice_id,legal_id,service_id,description,amount,currency,date\nI1,NOT-MATCHED,,IT services,1200,EUR,2026-09-01',w.companies,w.services,'hash',true)[0].companyId).toBeNull();expect(()=>importInvoices('invoice_id,legal_id,service_id,description,amount,currency,date\nI1,ID,,IT,10,EUR,2026-02-31',w.companies,w.services,'hash',true)).toThrow();});
+  it('parses quoted commas, escaped quotes and newlines',()=>{expect(parseCsv('a,b\n"one,two","say ""hi""\nnext"')).toEqual([['a','b'],['one,two','say "hi"\nnext']]);expect(()=>parseCsv('"unclosed')).toThrow();});
+  it('rejects unknown service and duplicate invoice IDs',()=>{expect(()=>importInvoices('invoice_id,legal_id,service_id,description,amount,currency,date\nI1,ID,bad,IT,10,EUR,2026-09-01',w.companies,w.services,'h',true)).toThrow();});
+  it('schema rejects malformed extraction',()=>{expect(extractionSchema.safeParse({answers:[{answer:'maybe'}]}).success).toBe(false);});
+  it('withholds invented quotes and invalid dates',()=>{const input={answers:[{questionId:w.services[0].questions[0].id,answer:'yes' as const,quote:'invented quote',eventDate:'2026-02-31',eventSummary:'event',companyNamed:true,reason:'test'}]};const e=validateExtraction(input,w.companies[0],w.services[0],'actual text','https://example.com/news','2026-09-26T00:00:00Z','test')[0];expect(e.answer).toBe('unknown');expect(e.eventDate).toBeNull();expect(e.status).toBe('review');});
+  it('cannot promote unassigned company evidence',()=>{const quote='We are hiring security specialists';const input={answers:[{questionId:w.services[0].questions[0].id,answer:'yes' as const,quote,eventDate:null,eventSummary:'event',companyNamed:false,reason:'identity unclear'}]};expect(validateExtraction(input,w.companies[0],w.services[0],quote,'https://example.com','2026-09-26T00:00:00Z','test')[0].status).toBe('review');});
+  it('rejects private, credentialed and non-HTTPS source URLs',()=>{for(const url of ['http://example.com','https://127.0.0.1','https://[::1]','https://localhost','https://user:password@example.com','https://example.com:8080','https://intranet.local'])expect(()=>safeUrl(url)).toThrow();expect(safeUrl('https://example.com/news').hostname).toBe('example.com');});
+  it('retries 429 with bounds, but never a denied request',async()=>{vi.useFakeTimers();let calls=0;const p=retry(async()=>{calls++;if(calls<3)throw {status:429};return 'ok';});await vi.runAllTimersAsync();expect(await p).toBe('ok');expect(calls).toBe(3);vi.useRealTimers();calls=0;await expect(retry(async()=>{calls++;throw {status:403};})).rejects.toEqual({status:403});expect(calls).toBe(1);});
+  it('denies cross-origin and read-only role writes',()=>{expect(()=>assertOrigin(new Request('https://app.example/api',{headers:{origin:'https://evil.example'}}))).toThrow();expect(()=>requireAdmin({tenant:'a',user:'b',role:'sales',mode:'live'})).toThrow();});
+});

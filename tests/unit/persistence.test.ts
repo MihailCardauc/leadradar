@@ -1,0 +1,13 @@
+import { it,expect,afterAll } from 'vitest';
+import { mkdtemp,rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { command } from '../../src/server/service';
+import { load,mutate,type Context } from '../../src/server/store';
+const dir=await mkdtemp(join(tmpdir(),'leadradar-test-'));process.env.LEADRADAR_DATA_DIR=dir;
+const ctx:Context={tenant:'a'.repeat(64),user:'test',role:'admin',mode:'demo'};
+afterAll(async()=>{delete process.env.LEADRADAR_DATA_DIR;await rm(dir,{recursive:true,force:true});});
+it('persists changes, serializes concurrent mutations and isolates sessions',async()=>{await Promise.all([mutate(ctx,w=>{w.audit.push({id:'one',at:'now',actor:'test',event:'test',detail:'one'});}),mutate(ctx,w=>{w.audit.push({id:'two',at:'now',actor:'test',event:'test',detail:'two'});})]);const w=await load(ctx);expect(w.revision).toBe(2);expect(w.audit.some(a=>a.id==='one')).toBe(true);expect(w.audit.some(a=>a.id==='two')).toBe(true);expect((await load({...ctx,tenant:'b'.repeat(64)})).revision).toBe(0);});
+it('publishes, restores rules and keeps history',async()=>{const w=await load(ctx);const s=structuredClone(w.services[0]);s.questions[0].weight=80;await command(ctx,{type:'publish',payload:s});expect((await load(ctx)).services.find(x=>x.id===s.id)?.version).toBe(2);await command(ctx,{type:'rollback',payload:{serviceId:s.id,version:1}});const restored=(await load(ctx)).services.find(x=>x.id===s.id)!;expect(restored.version).toBe(3);expect(restored.questions[0].weight).toBe(45);});
+it('draft retries have one action and never execute real CRM in demo',async()=>{for(let i=0;i<3;i++)await command(ctx,{type:'draft',payload:{companyId:'meridian',serviceId:'cybersecurity'}});const w=await load(ctx);expect(w.actions.length).toBe(1);await command(ctx,{type:'demo-confirm',payload:{id:w.actions[0].id}});expect((await load(ctx)).actions[0].status).toBe('demo-saved');});
+it('invoice retries are idempotent and conflicting reimports are atomic',async()=>{const csv='invoice_id,legal_id,service_id,description,amount,currency,date\nI1,DEMO-RO-001,,IT services,1200,EUR,2026-09-01';await command(ctx,{type:'accounting',payload:{csv}});await command(ctx,{type:'accounting',payload:{csv}});expect((await load(ctx)).invoices.length).toBe(1);await expect(command(ctx,{type:'accounting',payload:{csv:csv.replace('1200','1400')}})).rejects.toThrow('conflicts');expect((await load(ctx)).invoices[0].amount).toBe(1200);});
