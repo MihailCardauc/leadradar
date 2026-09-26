@@ -1,5 +1,11 @@
 # LeadRadar development plan
 
+## Documentation update, 26 September 2026
+
+[Whitepaper v6](output/LeadRadar-Business-Whitepaper-RO-v6.md) fully consolidates `final1.md`; v5 is preserved and remains the adopted implementation baseline pending explicit adoption of v6. The revised document includes a four-week pilot, SaaS/RaaS scenarios, Decision Case lifecycle, guarded routing and a mathematically reproducible weight simulation. This was documentation work, not execution of the build requests embedded in the source attachment.
+
+Before using this original setup plan as a current implementation inventory, inspect the existing product code and rerun relevant checks. Static inspection now finds UI, scoring, provider, worker, migration and test files; their presence was not treated as verified live readiness. Reconcile weighted signal coverage C with `src/domain/scoring.ts` (currently a question-count ratio), and verify future/event dates, job/tender expiration, approval invalidation and CRM reconciliation against the accepted contract. These are outstanding verification/reconciliation items, not fixes completed in the whitepaper task. Preserve the current two-service scope, one CRM and synthetic CSV unless a product decision explicitly changes them.
+
 26 September 2026. This is an executable plan with account blockers, not a certification that every external prerequisite is ready. The deadline and API budget remain unspecified. Estimate: 40-60 focused team person-hours for a narrow vertical slice after credentials work; this is a planning assumption, not a delivery guarantee.
 
 ## 0. Finish readiness (now)
