@@ -56,7 +56,7 @@ export async function handleResearch(d: ResearchJobData, update: Update, provide
   }
 }
 
-export async function handleCatalog(d: CatalogJobData, update: Update, providers: Pick<Providers, 'extractCatalog'>, model = process.env.OPENAI_MODEL ?? 'model') {
+export async function handleCatalog(d: CatalogJobData, update: Update, providers: Pick<Providers, 'extractCatalog'>, model = process.env.OPENAI_API_KEY && process.env.OPENAI_MODEL ? process.env.OPENAI_MODEL : 'page-headings') {
   try {
     await update(d, w => { const j = w.jobs.find(j => j.id === d.id); if (!j) throw new Error('Job not in workspace'); j.status = 'running'; j.attempts++; });
     const { supplier, tokens } = await providers.extractCatalog(d.url);

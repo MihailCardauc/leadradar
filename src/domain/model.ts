@@ -129,6 +129,8 @@ export const companySchema = z.object({
   firmographicsAsOf: z.string().max(40).default(''),
   dataMode: z.enum(['synthetic', 'reference_pack', 'live']).default('synthetic'),
   crmRecordId: z.string().max(80).default(''),
+  /** County / region for display and filtering (e.g. "Giurgiu", "Chișinău"). */
+  region: z.string().max(80).optional(),
 });
 export type Company = z.infer<typeof companySchema>;
 
@@ -195,6 +197,10 @@ export type Tender = {
   relevantServiceIds: string[]; triage: { relevant: boolean; reason: string; model: string } | null; rectifications: string[];
   T: { fit: number; attractiveness: number; feasibility: number; score: number; provisional: boolean } | null;
   sourceUrl: string; text: string; hash: string; importedAt: string; synthetic: boolean; historicalWinners: string[];
+  /** Presales GO / NO-GO, recorded by a person. LeadRadar never submits anything to a procurement platform. */
+  goDecision?: { decision: 'bid' | 'no_bid'; reason: string; by: string; at: string };
+  /** Public context about the contracting authority (website, news, registry), shown in the dossier. */
+  context?: string[];
 };
 
 // ---------- Jobs, sources, outbox ----------

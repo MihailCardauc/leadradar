@@ -58,6 +58,16 @@ export function relevantServicesByCpv(cpv: string[], services: Service[]): strin
   return services.filter(s => taxonomies.has(s.taxonomy)).map(s => s.id);
 }
 
+/**
+ * Services a notice is relevant to. CPV codes decide when they map to a taxonomy (even if no configured service
+ * offers it: then the notice is simply not relevant). Keyword classification is only the fallback for unmapped CPVs.
+ */
+export function relevantServices(cpv: string[], text: string, services: Service[], classify: (text: string) => string): string[] {
+  if (taxonomiesForCpv(cpv).size) return relevantServicesByCpv(cpv, services);
+  const taxonomy = classify(text);
+  return services.filter(s => s.taxonomy === taxonomy).map(s => s.id);
+}
+
 export function buildTender(input: TenderInput, services: Service[], now: string): Tender {
   const parsed = parseTenderText(input.text);
   const cpv = input.cpv?.length ? input.cpv : parsed.cpv;

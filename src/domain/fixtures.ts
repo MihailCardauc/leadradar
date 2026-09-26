@@ -4,6 +4,7 @@ import { evaluate } from './scoring';
 import { intelligentAutomation, scutNis2, cloud, orangeBusinessRomania, allTemplates } from './templates';
 import { defaultPlaybooks } from './decision';
 import { predict } from './prediction';
+import { designDemoCompanies, designDemoEvidence, designDemoInvoices, designDemoTenders } from './design-demo';
 
 /**
  * Fixtures are labelled. `synthetic` companies are fictitious; `reference_pack` companies carry only the public
@@ -55,6 +56,8 @@ export function seedWorkspace(demo = true): Workspace {
   ] : [];
   const evidence: Evidence[] = [];
   const synthetic = companies.filter(c => c.dataMode === 'synthetic');
+  // Romanian NIS2 demo accounts from the product design (fictional, synthetic), added after the index-based fixtures.
+  if (demo) { const extra = structuredClone(designDemoCompanies); companies.push(...extra); evidence.push(...designDemoEvidence(extra, services, at)); }
   for (const [ci, company] of synthetic.entries()) for (const service of services) for (const [qi, q] of service.questions.entries()) {
     // Answer patterns: atlas/meridian/delta fully researched; verde partially (coverage gate); nord unknown (identity gate); cobalt is a vendor (exclusion).
     let answer: Evidence['answer'];
@@ -88,9 +91,9 @@ export function seedWorkspace(demo = true): Workspace {
   const evaluations = companies.flatMap(c => services.map(s => evaluate(c, s, evidence, at)));
   const predictions = evaluations.map(e => predict(e, services.find(s => s.id === e.serviceId)!, evidence, [], at));
   return normalizeWorkspace({
-    revision: 0, companies, services, history: [], evidence, evaluations, evaluationHistory: [], jobs: [], actions: [], invoices: [], feedback: [],
+    revision: 0, companies, services, history: [], evidence, evaluations, evaluationHistory: [], jobs: [], actions: [], invoices: demo ? designDemoInvoices(at) : [], feedback: [],
     audit: [{ id: 'created', at, actor: 'system', event: 'workspace.created', detail: demo ? 'Synthetic demo workspace with reference-pack cases; no live research performed.' : 'Empty authenticated workspace.' }],
-    supplier: structuredClone(orangeBusinessRomania), predictions, decisions: [], tenders: [], outbox: [], proposals: [], playbooks: structuredClone(defaultPlaybooks),
+    supplier: structuredClone(orangeBusinessRomania), predictions, decisions: [], tenders: demo ? designDemoTenders(services, at) : [], outbox: [], proposals: [], playbooks: structuredClone(defaultPlaybooks),
     sources: [
       { id: 'firecrawl', family: 'web', name: 'Firecrawl search + scrape', state: 'planned', lastSuccessAt: null, lastErrorAt: null, consecutiveFailures: 0, circuitOpenUntil: null, note: 'Live when FIRECRAWL_API_KEY is set and a run succeeds' },
       { id: 'seap', family: 'procurement', name: 'SEAP / SICAP (RO)', state: 'authorised_import', lastSuccessAt: null, lastErrorAt: null, consecutiveFailures: 0, circuitOpenUntil: null, note: 'Email/PDF import of notifications; API planned' },

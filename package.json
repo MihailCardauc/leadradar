@@ -16,7 +16,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "check:setup": "node --env-file-if-exists=.env.local scripts/check-setup.mjs",
-    "verify:live": "node --env-file-if-exists=.env.local scripts/verify-live.mjs"
+    "verify:live": "node --env-file-if-exists=.env.local scripts/verify-live.mjs",
+    "eval:rules": "node --env-file-if-exists=.env.local --import tsx scripts/eval-rules.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.1",

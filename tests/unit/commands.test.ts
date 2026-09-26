@@ -100,6 +100,11 @@ describe('companies and evidence', () => {
     const after = (await load(ctx)).evaluations.find(x => x.companyId === 'verde' && x.serviceId === s.id)!;
     expect(after.R).toBeGreaterThan(before.R); expect(after.C).toBeGreaterThanOrEqual(before.C);
     await expect(command(ctx, { type: 'evidence-add', payload: { ...payload, quote: 'this quote is invented' } })).rejects.toThrow('exact substring');
+    // A reviewer can confirm the event date while validating an undated candidate; future dates are refused.
+    const undated = (await command(ctx, { type: 'evidence-add', payload: { ...payload, eventDate: null, quote: 'covering all stores', url: 'https://verde.example/news/security-2' } })).result as Evidence;
+    await expect(command(ctx, { type: 'evidence-review', payload: { id: undated.id, decision: 'validate', reason: 'Date read in the press release', eventDate: '2099-01-01' } })).rejects.toThrow('future');
+    const dated = (await command(ctx, { type: 'evidence-review', payload: { id: undated.id, decision: 'validate', reason: 'Date read in the press release', eventDate: '2026-08-30' } })).result as Evidence;
+    expect(dated.eventDate).toBe('2026-08-30'); expect(dated.uncertainty).toContain('confirmed');
   });
   it('removes a company with its evidence and unlinks invoices', async () => {
     await command(ctx, { type: 'accounting', payload: { csv: 'invoice_id,legal_id,service_id,description,amount,currency,date\nR1,DEMO-RO-005,,Licence,100,EUR,2026-09-01' } });
