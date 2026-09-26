@@ -1,5 +1,11 @@
 # LeadRadar technical readiness audit
 
+## Later documentation observation, 26 September 2026
+
+The original audit below is preserved as a dated setup snapshot. During the [v6 whitepaper revision](output/LeadRadar-Business-Whitepaper-RO-v6.md), static inspection found product scoring/UI/provider/worker code, migrations and product test files beyond the original setup screen. No current application test suite, credentials, database connectivity, migrations, tenant policies or HubSpot writes were verified in this documentation task. Existing local application changes were preserved.
+
+Firecrawl CLI authenticated and successfully retrieved six public pages for document research (Orange NIS2/cloud, European Commission AI Act, EUR-Lex GDPR, 6sense and Bombora). This confirms the research tool worked for those requests only; it does not establish application integration readiness. The new whitepaper retains the established scoring contract and explicitly records the observed weighted-coverage mismatch as an unresolved implementation item. Document calculation, structure and PDF checks are separate from the application checks recorded below.
+
 Audited 26 September 2026 in the current Windows workspace. **Verdict: local development ready; live service integration not yet ready.** Packages cannot supply account credentials or billing authorization. No paid resources, public deployment, CRM writes, database migrations, commits or pushes were performed.
 
 ## Verified and prepared

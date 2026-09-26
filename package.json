@@ -15,7 +15,8 @@
     "lint": "eslint src tests",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "check:setup": "node --env-file-if-exists=.env.local scripts/check-setup.mjs"
+    "check:setup": "node --env-file-if-exists=.env.local scripts/check-setup.mjs",
+    "verify:live": "node --env-file-if-exists=.env.local scripts/verify-live.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.1",

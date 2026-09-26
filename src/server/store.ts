@@ -3,15 +3,21 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { seedWorkspace } from '../domain/fixtures';
-import type { Workspace } from '../domain/model';
+import { normalizeWorkspace, type Workspace } from '../domain/model';
 
+/**
+ * Tenant-scoped aggregate store. Live mode: Supabase JSONB workspace with optimistic revisions and RLS (see migrations).
+ * Demo mode: isolated local JSON file per demo tenant (never a fallback for authenticated users).
+ */
 export class AppError extends Error { constructor(public status: number, message: string) { super(message); } }
 export type Context = { tenant: string; user: string; role: 'admin' | 'sales'; mode: 'demo' | 'live'; db?: SupabaseClient };
+
 export function publicDb(token?: string) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL, key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) throw new AppError(503, 'Supabase runtime configuration is missing');
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false }, global: token ? { headers: { Authorization: `Bearer ${token}` } } : undefined });
 }
+
 export async function context(request: Request): Promise<Context> {
   const auth = request.headers.get('authorization');
   if (auth) {
@@ -31,20 +37,24 @@ export async function context(request: Request): Promise<Context> {
   return { tenant: cookie, user: 'demo-user', role: 'admin', mode: 'demo' };
 }
 export function requireAdmin(ctx: Context) { if (ctx.role !== 'admin') throw new AppError(403, 'Administrator access required'); }
+
 function path(tenant: string) {
   if (!/^[a-f0-9]{64}$/.test(tenant)) throw new AppError(403, 'Invalid demo workspace');
   return join(process.env.LEADRADAR_DATA_DIR || join(process.cwd(), '.leadradar'), `${tenant}.json`);
 }
+
 export async function load(ctx: Context): Promise<Workspace> {
   if (ctx.mode === 'live') {
     const { data, error } = await ctx.db!.from('lr_workspaces').select('state,revision').eq('id', ctx.tenant).single();
     if (error || !data) throw new AppError(403, 'Workspace unavailable');
-    return { ...data.state, revision: data.revision } as Workspace;
+    return normalizeWorkspace({ ...data.state, revision: data.revision } as Workspace);
   }
-  try { return JSON.parse(await readFile(path(ctx.tenant), 'utf8')); }
+  try { return normalizeWorkspace(JSON.parse(await readFile(path(ctx.tenant), 'utf8'))); }
   catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; return seedWorkspace(); }
 }
+
 const locks = new Map<string, Promise<unknown>>();
+/** Serialised read-modify-write per tenant with optimistic concurrency in live mode and atomic file replace in demo mode. */
 export async function mutate<T>(ctx: Context, fn: (w: Workspace) => T | Promise<T>): Promise<{ state: Workspace; result: T }> {
   const previous = locks.get(ctx.tenant) ?? Promise.resolve();
   const operation = previous.catch(() => {}).then(async () => {
@@ -62,17 +72,23 @@ export async function mutate<T>(ctx: Context, fn: (w: Workspace) => T | Promise<
   locks.set(ctx.tenant, operation);
   try { return await operation; } finally { if (locks.get(ctx.tenant) === operation) locks.delete(ctx.tenant); }
 }
+
 export function assertOrigin(request: Request) {
   const origin = request.headers.get('origin');
   if (!origin) throw new AppError(403, 'Same-origin request required');
-  const parsed = new URL(origin);
+  let parsed: URL;
+  try { parsed = new URL(origin); } catch { throw new AppError(403, 'Same-origin request required'); }
   const configured = new URL(process.env.APP_BASE_URL || 'http://localhost:3000');
-  const trusted = origin === configured.origin || (['localhost','127.0.0.1'].includes(parsed.hostname) && parsed.protocol === 'http:');
+  const trusted = origin === configured.origin || (['localhost', '127.0.0.1'].includes(parsed.hostname) && parsed.protocol === 'http:');
   if (!trusted || parsed.host !== (request.headers.get('host') || new URL(request.url).host)) throw new AppError(403, 'Same-origin request required');
 }
 export async function body(request: Request) {
   const text = await request.text(); if (text.length > 300000) throw new AppError(413, 'Request exceeds 300 KB');
-  try { return JSON.parse(text); } catch { throw new AppError(400, 'Invalid JSON'); }
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Expected object');
+    return parsed as Record<string, unknown>;
+  } catch { throw new AppError(400, 'Invalid JSON object'); }
 }
 export function failure(error: unknown) {
   if (error instanceof AppError) return Response.json({ error: error.message }, { status: error.status });

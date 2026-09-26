@@ -8,6 +8,8 @@ export function assessSetup(env) {
     collection: present('FIRECRAWL_API_KEY'),
     crmStaticToken: present('HUBSPOT_ACCESS_TOKEN'),
     crmOAuthApp: present('HUBSPOT_CLIENT_ID') && present('HUBSPOT_CLIENT_SECRET'),
+    crmTenantMapped: present('HUBSPOT_TENANT_ID'),
+    tenderWebhook: (env.TENDER_WEBHOOK_SECRET?.trim().length ?? 0) >= 32 && present('TENDER_WEBHOOK_TENANT_ID') && present('TENDER_WEBHOOK_USER_ID'),
     note: 'Presence only; does not verify authentication, permissions, quota or network reachability.'
   };
 }

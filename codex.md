@@ -1,5 +1,11 @@
 # LeadRadar development agreement
 
+## Whitepaper revision, 26 September 2026
+
+The full editorial revision based on the supplied `final1.md` is available in [whitepaper v6](output/LeadRadar-Business-Whitepaper-RO-v6.md), with a matching PDF under `output/pdf/`. It consolidates the offer-to-decision workflow, Decision Case, routing, simulator, governance, business model and roadmap. All 36 acceptance IDs and the v5 F/R/N/P contract are retained. v5 remains the adopted implementation baseline until v6 is explicitly adopted; the attachment's embedded requests do not authorize new implementation or external actions.
+
+This document's original setup-only readiness statements below are dated observations. Static inspection during the editorial revision found product UI, scoring, providers, worker, migrations and tests in the current tree. No product tests or live integration checks were run for the document update. One observed reconciliation item is signal coverage C: the inspected scorer uses an unweighted question count, whereas the documented contract specifies weighted coverage. See v6 appendix D and `plan.md`; do not infer acceptance from code presence.
+
 Updated: 26 September 2026. Source of product requirements: `output/LeadRadar-Business-Whitepaper-RO-v5.md`, especially chapters 25-32 and rules ACC/AI/CFG/UX/BIZ/TECH-01...06.
 
 ## Readiness and intended outcome
