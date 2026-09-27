@@ -15,12 +15,13 @@ Every `POST` from the browser must carry a same-origin `Origin` header (`APP_BAS
 
 | Method & path | Role | Purpose |
 |---|---|---|
+| `GET /api/session` | public | `{ signedIn, mode?, role? }` — always 200 |
 | `POST /api/session` | public | `demo`; `login {email,password}` → `{token, refreshToken, expiresAt, memberships}`; `refresh {refreshToken}`; `create {name}` (Bearer) → `{tenant}`; `logout`. Rate-limited per client. |
 | `GET /api/workspace?serviceId=` | any | `{ state, mode, role, integrations, priorities[], summary, commands[] }` |
 | `POST /api/workspace` | per command | `{ type, payload }` → `{ state, result }` (`simulate` → `{ simulation, detail }`) |
 | `GET /api/jobs?id=` | any | Polling: `{ revision, jobs[], sources[], outbox[], summary, integrations }` |
-| `POST /api/research` | admin, live | `{ companyId, serviceId, urls? }` → 202 `{ id }`. Budget, circuit breaker and duplicate checks. Demo: command `demo-research`. |
-| `POST /api/catalog` | admin | `{ url }` (live, worker + LLM) → 202 `{ id }`; or `{ supplierName, lines[], geographies?, industries? }` → proposal |
+| `POST /api/research` | admin, live | `{ companyId, serviceId, urls? }` → 202 `{ id, extractor }`. Needs Firecrawl; without OpenAI the rules extractor proposes candidates (`review`). Budget, circuit breaker and duplicate checks. Demo: command `demo-research`. |
+| `POST /api/catalog` | admin | `{ url }` (live, worker; LLM if configured, otherwise page headings) → 202 `{ id }`; or `{ supplierName, lines[], geographies?, industries? }` → proposal |
 | `GET /api/tender?id=` | any | Dossier list (without raw text) or one dossier |
 | `POST /api/tender` | admin | Import `{ payload: { text, source, ... } }` → `{ state, result, triageJobId }`; `{ action:'update', payload }`; `{ action:'triage', id }` |
 | `POST /api/tender/inbound` | signed webhook | See below |
@@ -64,12 +65,13 @@ Every `POST` from the browser must carry a same-origin `Origin` header (`APP_BAS
 | `budgets-update` | partial `{dailyResearchRuns, maxPagesPerRun, maxTokensPerRun, maxQueriesPerRun, maxCostPerDayEur}` |
 | `source-update` | `{id, state: authorised_import|demo|planned|unavailable, note?}` (`live_tested` only after a successful run) |
 | `recalculate` | — (decay, momentum, decision expiry) |
+| `companies-import` | `{csv}` headers `name,domain` (+ `legal_id,country,region,industry,employees,revenue,owner`) → `{added[], skipped[]}`; identity stays candidate |
 | `company` | `Company` |
 | `company-update` | `{id, reason, owner?, relationship?, tags?, aliases?, domain?, firmographics…, crmRecordId? (confirmed only), technologies?}`; tags `no_contact`/`objection`/`restricted` stop routing |
 | `company-remove` | `{id, reason}` (evidence and evaluations deleted, invoices unlinked, sent CRM history kept) |
 | `resolve` | `{companyId, legalId, reason}` manual identity confirmation |
 | `evidence-add` | `{companyId, serviceId, questionId, answer: yes|no, quote, text, url, eventDate|null, publishedAt?, publisher?, sourceType, claimType, reason}` → status `review` |
-| `evidence-review` | `{id, decision: validate|reject, reason}` |
+| `evidence-review` | `{id, decision: validate|reject, reason, eventDate?}` (reviewer-confirmed explicit event date, never future) |
 | `feedback` S | `{companyId, serviceId, decision: accepted|rejected, reason, outcome?}` |
 | `decision` S | `{companyId, serviceId}` → Decision Case |
 | `decision-edit` S | `{id, draft}` → new `contentHash` |
@@ -78,6 +80,7 @@ Every `POST` from the browser must carry a same-origin `Origin` header (`APP_BAS
 | `draft` S, `save-draft` S, `demo-confirm` S | legacy action drafts |
 | `accounting` | `{csv}` with headers `invoice_id,legal_id,service_id,description,amount,currency,date` |
 | `tender-import`, `tender-update` | see `/api/tender`; a deadline change requires the rectification text |
+| `tender-decision` | `{id, decision: bid|no_bid, reason}`; bids only on active procedures; never submits anything |
 | `catalog-propose`, `catalog-apply {proposalId, serviceIds}`, `catalog-discard {proposalId}` | cold start |
 | `supplier-update` | `{positioning?, proofPoints?, geographies?, industries?, competitorsKnown?}` |
 | `demo-seed-apply` | adds the real-company seed as review rows |

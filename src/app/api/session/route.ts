@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { assertOrigin, body, failure, publicDb, AppError, mutate } from '../../../server/store';
+import { assertOrigin, body, context, failure, publicDb, AppError, mutate } from '../../../server/store';
 import { seedWorkspace } from '../../../domain/fixtures';
 import { rateLimit, clientKey } from '../../../server/ratelimit';
 
@@ -12,7 +12,13 @@ import { rateLimit, clientKey } from '../../../server/ratelimit';
  *   refresh -> exchanges a refresh token for a new access token
  *   create  -> new workspace via RPC (the caller becomes admin); empty, labelled live
  *   logout  -> clears the demo cookie (Supabase tokens are dropped by the client)
+ *   GET     -> session status for the UI: always 200, never reveals why a session is absent
  */
+export async function GET(request: Request) {
+  try { const ctx = await context(request); return Response.json({ signedIn: true, mode: ctx.mode, role: ctx.role }, { headers: { 'Cache-Control': 'no-store' } }); }
+  catch { return Response.json({ signedIn: false, demoAvailable: process.env.LEADRADAR_DISABLE_DEMO !== 'true' }, { headers: { 'Cache-Control': 'no-store' } }); }
+}
+
 const schema = z.object({ action: z.enum(['demo', 'login', 'refresh', 'create', 'logout']), email: z.string().email().optional(), password: z.string().max(200).optional(), refreshToken: z.string().max(2000).optional(), name: z.string().min(2).max(100).optional() });
 
 export async function POST(request: Request) {

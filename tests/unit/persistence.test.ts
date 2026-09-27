@@ -72,7 +72,7 @@ it('draft retries have one action and never execute real CRM in demo', async () 
 });
 it('invoice retries are idempotent, conflicting reimports are atomic, and relationship changes routing', async () => {
   const csv = 'invoice_id,legal_id,service_id,description,amount,currency,date\nI1,DEMO-RO-002,,IT services,1200,EUR,2026-09-01';
-  await command(ctx, { type: 'accounting', payload: { csv } }); await command(ctx, { type: 'accounting', payload: { csv } }); expect((await load(ctx)).invoices.length).toBe(1);
-  await expect(command(ctx, { type: 'accounting', payload: { csv: csv.replace('1200', '1400') } })).rejects.toThrow('conflicts'); expect((await load(ctx)).invoices[0].amount).toBe(1200);
+  await command(ctx, { type: 'accounting', payload: { csv } }); await command(ctx, { type: 'accounting', payload: { csv } }); expect((await load(ctx)).invoices.filter(i => i.invoiceId === 'I1').length).toBe(1);
+  await expect(command(ctx, { type: 'accounting', payload: { csv: csv.replace('1200', '1400') } })).rejects.toThrow('conflicts'); expect((await load(ctx)).invoices.find(i => i.invoiceId === 'I1')!.amount).toBe(1200);
   const d = (await command(ctx, { type: 'decision', payload: { companyId: 'meridian', serviceId: 'cloud' } })).result as DecisionCase; expect(d.team).toBe('account_management'); expect(d.relationship.productOwnership).toBe('unknown');
 });

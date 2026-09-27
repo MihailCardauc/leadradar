@@ -50,13 +50,13 @@ describe('worker handlers', () => {
     expect(store.get().proposals![0].status).toBe('draft'); expect(store.get().jobs[0].status).toBe('completed');
   });
   it('inbound tender: deterministic import without an LLM, idempotent on redelivery', async () => {
-    const store = memoryStore(seedWorkspace());
+    const store = memoryStore(seedWorkspace()); const seeded = store.get().tenders!.length;
     const notice = { text: 'Anunt DA39726722. Servicii de securitate cibernetica NIS2. CPV 72212730-5. Termen limita de depunere 15.01.2030.', source: 'email' as const, subject: 'SEAP alert' };
     const id = await handleTenderInbound({ ...data, notice }, store.update, null);
     const t = store.get().tenders!.find(t => t.id === id)!;
     expect(t.procedureId).toBe('DA39726722'); expect(t.relevantServiceIds).toContain('scut-nis2'); expect(store.get().jobs[0].status).toBe('completed');
     expect(await handleTenderInbound({ ...data, notice }, store.update, null)).toBeNull();
-    expect(store.get().tenders!.length).toBe(1);
+    expect(store.get().tenders!.length).toBe(seeded + 1);
   });
   it('refresh recalculates and audits without external calls', () => {
     const w = seedWorkspace(); const before = w.evaluations[0].id;

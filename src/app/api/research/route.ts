@@ -4,7 +4,7 @@ import { context, failure, assertOrigin, body, requireAdmin, mutate, AppError } 
 import { queue, QUEUES } from '../../../server/queue';
 import { audit } from '../../../server/service';
 import { circuitOpen, sourceById } from '../../../server/sources';
-import { safeUrl } from '../../../server/providers';
+import { safeUrl, extractorLabel } from '../../../server/providers';
 import { budgetCheck } from '../../../domain/budget';
 
 /**
@@ -15,7 +15,8 @@ export async function POST(request: Request) {
   try {
     assertOrigin(request); const ctx = await context(request); requireAdmin(ctx);
     if (ctx.mode !== 'live') throw new AppError(400, 'Use synthetic replay (command demo-research) in demo mode');
-    if (!process.env.FIRECRAWL_API_KEY || !process.env.OPENAI_API_KEY || !process.env.OPENAI_MODEL) throw new AppError(503, 'Configure Firecrawl and OpenAI before live research');
+    // Firecrawl is required; OpenAI is optional (without it the rules extractor proposes candidates for review).
+    if (!process.env.FIRECRAWL_API_KEY) throw new AppError(503, 'Configure Firecrawl before live research');
     const p = z.object({ companyId: z.string(), serviceId: z.string(), urls: z.array(z.string().max(500)).max(10).optional() }).parse(await body(request));
     const urls = (p.urls ?? []).map(u => safeUrl(u).href);
     const boss = await queue(); const id = randomUUID();
@@ -30,6 +31,6 @@ export async function POST(request: Request) {
     });
     try { await boss.send(QUEUES.research, { tenant: ctx.tenant, user: ctx.user, id, urls }, { singletonKey: `${ctx.tenant}:${id}` }); }
     catch { await mutate(ctx, w => { const j = w.jobs.find(j => j.id === id); if (j) { j.status = 'failed'; j.message = 'Queue submission failed; create a new run to retry'; } }); throw new AppError(503, 'Queue submission failed'); }
-    return Response.json({ id }, { status: 202 });
+    return Response.json({ id, extractor: extractorLabel() }, { status: 202 });
   } catch (e) { return failure(e); }
 }

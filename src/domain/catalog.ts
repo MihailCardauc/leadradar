@@ -47,6 +47,30 @@ export function supplierFromExtraction(x: CatalogExtraction, sourceUrl: string, 
   };
 }
 
+/**
+ * Cold start without a model: the supplier's own headings (H1-H3) become catalogue items when they classify into a
+ * known taxonomy. Names are exact page text (offer_explicit); `solves` is the first sentence under the heading.
+ * Noisy by design: a human prunes the proposal before publishing.
+ */
+export function supplierFromHeadings(pageText: string, sourceUrl: string, at: string): Supplier {
+  const lines = pageText.split('\n');
+  const items: Supplier['catalog'] = []; const seen = new Set<string>();
+  let family = 'Other';
+  lines.forEach((line, i) => {
+    const m = line.match(/^(#{1,3})\s+(.+?)\s*#*\s*$/); if (!m) return;
+    const name = m[2].replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').trim();
+    if (m[1].length === 1) { family = name.slice(0, 100); }
+    if (name.length < 3 || name.length > 90 || seen.has(name.toLowerCase())) return;
+    const body = lines.slice(i + 1, i + 8).find(l => l.trim() && !l.startsWith('#') && !l.includes('](')) ?? '';
+    const taxonomy = classifyTaxonomy(`${name} ${body}`);
+    if (taxonomy === 'other') return;
+    seen.add(name.toLowerCase());
+    items.push({ id: `${slug(name)}-${items.length}`.slice(0, 100), family: family === name ? taxonomy : family, name: name.slice(0, 160), solves: body.trim().slice(0, 500), buyers: [], pricingModel: 'unknown', origin: 'offer_explicit' });
+  });
+  const host = (() => { try { return new URL(sourceUrl).hostname.replace(/^www\./, ''); } catch { return 'supplier'; } })();
+  return { id: slug(host), name: host, sourceUrl, collectedAt: at, hash: sha(pageText), positioning: '', catalog: items.slice(0, 40), proofPoints: [], geographies: [], industries: [], competitorsKnown: [], validatedBy: '' };
+}
+
 /** Propose one service configuration per catalogue family, from the closest template, with origin tags on every field. */
 export function proposeServices(supplier: Supplier, at: string, model: string): CatalogProposal {
   const families = new Map<string, Supplier['catalog']>();

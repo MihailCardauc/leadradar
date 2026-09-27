@@ -1,20 +1,21 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
-import { companySchema, serviceSchema, questionSchema, idSchema, isoDate, normalizeWorkspace, type Workspace, type Service, type Action, type DecisionCase, type Tender, type Supplier, type OutboxItem, type Company, type ConnectorState } from '../domain/model';
+import { companySchema, serviceSchema, questionSchema, idSchema, isoDate, normalizeWorkspace, type Workspace, type Service, type Action, type DecisionCase, type Tender, type Supplier, type OutboxItem, type Company, type ConnectorState, type Evaluation } from '../domain/model';
 import { evaluate, counterfactual } from '../domain/scoring';
 import { predict, confirmingQuestions } from '../domain/prediction';
 import { route } from '../domain/routing';
 import { buildDecisionCase, decisionIsCurrent, contentHashOf, explain, expireDecisions } from '../domain/decision';
 import { simulate, exportConfig, normalizeWeights, reweight } from '../domain/simulate';
 import { importInvoices } from '../domain/accounting';
-import { buildTender, tenderStatus, tenderPriority, requirementFit } from '../domain/tender';
+import { buildTender, tenderStatus, tenderPriority, requirementFit, relevantServices } from '../domain/tender';
 import { resolveCandidates, nameSimilarity, normalizeDomain } from '../domain/identity';
 import { templateFor, taxonomyList, orangeBusinessRomania } from '../domain/templates';
 import { proposeServices, classifyTaxonomy } from '../domain/catalog';
 import { applyDemoSeed, demoSeedCompanies, demoSeedEvidence } from '../domain/demo-seed';
 import { calibrate } from '../domain/calibration';
-import { manualEvidence, sourceTypes } from '../domain/evidence';
+import { manualEvidence, sourceTypes, validDate } from '../domain/evidence';
 import { usageToday } from '../domain/budget';
+import { importCompanies } from '../domain/companies';
 import { AppError, type Context, requireAdmin, mutate, load } from './store';
 import { hash, safeUrl } from './providers';
 import { recordFailure, recordSuccess, sourceById } from './sources';
@@ -39,10 +40,18 @@ export function recalculate(w: Workspace, at = now()) {
   const history = w.evaluationHistory!;
   for (const e of w.evaluations) if (!history.some(h => h.id === e.id)) history.push(e);
   if (history.length > 5000) history.splice(0, history.length - 5000);
-  w.evaluations = w.companies.flatMap(c => w.services.map(s => evaluate(c, s, w.evidence, at)));
+  // Keep the stored evaluation (and its id) when nothing material changed, so unrelated recalculations do not
+  // invalidate open Decision Cases; any change in status, band, rounded P, gates or evidence produces a new one.
+  const previous = new Map(w.evaluations.map(e => [`${e.companyId}:${e.serviceId}`, e]));
+  w.evaluations = w.companies.flatMap(c => w.services.map(s => { const next = evaluate(c, s, w.evidence, at); const prior = previous.get(`${c.id}:${s.id}`); return prior && materiallySame(prior, next) ? prior : next; }));
   w.predictions = w.evaluations.map(e => predict(e, w.services.find(s => s.id === e.serviceId)!, w.evidence, history, at));
   // Material change or the 7-day validity invalidates open cases and approvals.
   return expireDecisions(w.decisions!, w.companies, w.evaluations, at);
+}
+/** Same rules version, status, band, rounded priority, gates and per-question answers/evidence. */
+export function materiallySame(a: Evaluation, b: Evaluation) {
+  const sig = (e: Evaluation) => JSON.stringify([e.version, e.rulesVersion, e.status, e.band, Math.round(e.P), (e.gates ?? []).map(g => `${g.code}:${g.detail}`).sort(), e.contributions.map(c => [c.questionId, c.answer, [...c.evidenceIds].sort()])]);
+  return sig(a) === sig(b);
 }
 export function audit(w: Workspace, ctx: Pick<Context, 'user'>, event: string, detail: string) { w.audit.unshift({ id: randomUUID(), at: now(), actor: ctx.user, event, detail: detail.slice(0, 1000) }); if (w.audit.length > 2000) w.audit.length = 2000; }
 
@@ -215,6 +224,14 @@ const mutations: Record<string, Handler> = {
     if (c.identity !== 'confirmed') c.crmRecordId = '';
     w.companies.push(c); recalculate(w); audit(w, ctx, 'company.added', c.name); return c;
   },
+  'companies-import': (w, ctx, payload) => {
+    const p = z.object({ csv: z.string().min(10).max(250000) }).parse(payload);
+    let result; try { result = importCompanies(p.csv, w.companies, ctx.mode === 'live'); } catch (e) { throw new AppError(400, (e as Error).message); }
+    if (ctx.mode === 'live') for (const c of result.companies) safeUrl(`https://${c.domain}`);
+    w.companies.push(...result.companies); recalculate(w);
+    audit(w, ctx, 'companies.imported', `${result.companies.length} added as identity candidates; ${result.skipped.length} skipped`);
+    return { added: result.companies.map(c => ({ id: c.id, name: c.name })), skipped: result.skipped };
+  },
   'company-update': (w, ctx, payload) => {
     const { id, reason, ...p } = companyUpdateSchema.parse(payload);
     const c = find(w.companies, c => c.id === id, 'Company');
@@ -256,11 +273,17 @@ const mutations: Record<string, Handler> = {
     w.evidence.push(e); recalculate(w); audit(w, ctx, 'evidence.added', `${c.name} / ${s.id} / ${p.questionId} (${p.answer}, review): ${p.url}`); return e;
   },
   'evidence-review': (w, ctx, payload) => {
-    const p = z.object({ id: z.string(), decision: z.enum(['validate', 'reject']), reason: z.string().min(8).max(500) }).parse(payload);
+    const p = z.object({ id: z.string(), decision: z.enum(['validate', 'reject']), reason: z.string().min(8).max(500), eventDate: isoDate.nullable().optional() }).parse(payload);
     const evidence = find(w.evidence, e => e.id === p.id, 'Evidence');
     if (p.decision === 'validate' && (!evidence.quote.trim() || !evidence.text.includes(evidence.quote) || ['unknown', 'conflict'].includes(evidence.answer))) throw new AppError(409, 'Unknown or conflicting evidence requires a new source; it cannot be promoted by approval alone');
+    // The reviewer may confirm an explicit event date read in the source (e.g. the press-release date); never a future date.
+    if (p.decision === 'validate' && p.eventDate !== undefined) {
+      if (p.eventDate !== null && !validDate(p.eventDate, now())) throw new AppError(400, 'Event date must be a real calendar date that is not in the future');
+      evidence.eventDate = p.eventDate;
+      if (p.eventDate) evidence.uncertainty = `Event date ${p.eventDate} confirmed by ${ctx.user} at review`;
+    }
     evidence.status = p.decision === 'validate' ? 'validated' : 'rejected'; evidence.reviewer = ctx.user; evidence.reviewedAt = now();
-    audit(w, ctx, 'evidence.reviewed', `${p.id}: ${p.decision}. ${p.reason}`); recalculate(w); return evidence;
+    audit(w, ctx, 'evidence.reviewed', `${p.id}: ${p.decision}${p.eventDate !== undefined ? ` (event date ${p.eventDate ?? 'unknown'})` : ''}. ${p.reason}`); recalculate(w); return evidence;
   },
 
   // ---- sales workflow
@@ -356,6 +379,15 @@ const mutations: Record<string, Handler> = {
     recalculate(w); audit(w, ctx, 'tender.updated', `${t.procedureId}: status ${t.status}, T=${t.T.score}${t.T.provisional ? ' (provisional)' : ''}`); return t;
   },
 
+  'tender-decision': (w, ctx, payload) => {
+    // A person records GO / NO-GO for Presales. Nothing is submitted; expired procedures cannot be bid on.
+    const p = z.object({ id: z.string(), decision: z.enum(['bid', 'no_bid']), reason: z.string().min(3).max(500) }).parse(payload);
+    const t = find(w.tenders, t => t.id === p.id, 'Tender');
+    if (p.decision === 'bid' && t.status !== 'active') throw new AppError(409, `Tender is ${t.status}; a bid needs an active procedure (or a verified official extension)`);
+    t.goDecision = { decision: p.decision, reason: p.reason, by: ctx.user, at: now() };
+    audit(w, ctx, `tender.${p.decision}`, `${t.procedureId}: ${p.reason}`); return t;
+  },
+
   // ---- cold start
   'catalog-propose': (w, ctx, payload) => {
     // Manual cold start without an LLM: a pasted catalogue (one product per line "family | name | solves").
@@ -407,7 +439,7 @@ export function importTender(w: Workspace, ctx: Pick<Context, 'user' | 'mode'>, 
   const duplicate = w.tenders!.find(x => x.hash === t.hash || (t.procedureId !== 'unknown' && x.procedureId === t.procedureId && x.source === t.source));
   if (duplicate) return duplicate;
   if (t.authority) { const cands = resolveCandidates({ name: t.authority }, w.companies); if (cands[0] && cands[0].state !== 'ambiguous' && w.companies.find(c => c.id === cands[0].companyId)?.identity === 'confirmed') t.authorityCompanyId = cands[0].companyId; }
-  if (!t.relevantServiceIds.length) { const tax = classifyTaxonomy(t.text); t.relevantServiceIds = w.services.filter(s => s.taxonomy === tax).map(s => s.id); }
+  t.relevantServiceIds = relevantServices(t.cpv, t.text, w.services, classifyTaxonomy);
   t.triage = { relevant: t.relevantServiceIds.length > 0, reason: t.relevantServiceIds.length ? `CPV/keyword match: ${t.relevantServiceIds.join(', ')}` : 'No configured service matches the CPV codes or text', model: 'deterministic-cpv-keywords' };
   t.T = tenderPriority(t, requirementFit(t), 50, 50);
   w.tenders!.unshift(t);

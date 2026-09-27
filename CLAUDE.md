@@ -46,10 +46,14 @@ src/domain/       pure, deterministic, unit-tested — no I/O
   templates.ts    service templates (Intelligent Automation, SCUT NIS2, SCUT MDR, Cloud, Connectivity, IoT, Analytics, IT services) + Orange Business Romania twin
   fixtures.ts     seedWorkspace() (synthetic + reference-pack cases), regressionFixture(), simulatorFixture()
   demo-seed.ts    13 real companies / 23 evidence rows with public URLs, quotes and dates (status review); register in docs/demo-seed-register.md
+  design-demo.ts  FICTIONAL Romanian NIS2 accounts, quotes, invoice and tenders from the product design (synthetic, .example, DEMO- ids)
+  companies.ts    CSV company import (domain dedup, identity stays candidate until verified)
   accounting.ts   fictitious/authorised invoice CSV import; generic descriptions keep product unknown
   calibration.ts  learning loop: feedback/outcomes -> bounded weight *proposals* (draft + simulation, never auto-applied)
   evidence.ts     analyst-entered evidence: quote/date/URL verified, always arrives as `review`
   budget.ts       cost estimate per job, daily run + cost caps
+  extract.ts      rules extractor (no LLM): exact-sentence candidates per question (EN + RO stems, acronym expansions),
+                  negation/vendor/job-cut guards, explicit dates only, header date kept as publishedAt; always `review`
 src/server/       server-only; tenant context on every call
   store.ts        Context, load/mutate (Supabase JSONB aggregate with revisions | isolated demo file), origin/body/failure helpers
   service.ts      command() dispatcher: queries (read-only, never write) + mutations; recalculate() (incl. decision expiry),
@@ -68,7 +72,14 @@ supabase/migrations/  0001 workspace aggregate + RLS, 0002 sales role guard, 000
 tests/unit/       vitest: scoring, prediction, simulator, routing, identity/catalog/accounting/tender, persistence + commands,
                   calibration/evidence/budget/expiry, worker handlers + connectors (ANAF, HubSpot lookup, webhook), pipeline, setup
 docs/api.md       full endpoint + command reference for the frontend
-tests/e2e/        Playwright specs written against the previous UI — rewrite them with the new design
+tests/e2e/        Playwright: welcome/API guards + 8 demo flows (radar card + approve→queue, reject, tenders, builder publish/rollback,
+                  actions edit/approve, import, metrics/how/theme, 390px no-overflow)
+src/ui/           the product UI (design: LeadRadar.html, Lunaris tokens in src/app/globals.css)
+  api.ts          browser client (demo cookie | Supabase bearer + x-tenant-id in sessionStorage, one refresh on 401)
+  store.tsx       AppProvider: per-service read model, run/query/call with refresh + toasts, job polling, navigation
+  derive.ts       pure view models (contribution bar, queue, metrics, source bars, tender urgency) — unit-tested
+  App.tsx         session gate → shell (Radar, Companies, Tenders, Signal Builder, Actions, Metrics, How it works)
+  screens/        Radar + CompanySheet, Companies, Tenders, Builder, Actions, Metrics, How, Welcome, Settings, ImportSheet
 ```
 
 ## API (all JSON; same-origin `Origin` header required on POST; demo cookie `lr_demo` or `Authorization: Bearer <supabase jwt>` + `x-tenant-id`)
@@ -78,7 +89,7 @@ tests/e2e/        Playwright specs written against the previous UI — rewrite t
 | `GET /api/workspace?serviceId=` | `{ state, mode, role, integrations, priorities[], summary, commands[] }` - `priorities` is the dashboard read model (P, band, status, stage, momentum, window, mainReason, freshness, stale, K, C, relationship, owner, nextStep, gates, dataMode, openDecision, researchInProgress); `summary` counts bands, reviews, jobs, unavailable sources, outbox attention, budget use |
 | `POST /api/workspace` | `{ type, payload }` commands (below) -> `{ state, result }`; `{ type: 'simulate', payload: Service }` -> `{ simulation (legacy rows), detail: Simulation }` |
 | `GET /api/jobs?id=` | polling: jobs, sources, outbox, summary |
-| `POST /api/session` | `demo` (isolated tenant cookie), `login` (token + refreshToken), `refresh`, `create`, `logout`; rate-limited |
+| `GET/POST /api/session` | GET status (always 200); POST `demo` (isolated tenant cookie), `login` (token + refreshToken), `refresh`, `create`, `logout`; rate-limited |
 | `POST /api/research` | queue live research `{ companyId, serviceId, urls? }` (worker; budget + circuit breaker); demo uses command `demo-research` |
 | `POST /api/catalog` | cold start: `{ url }` (live, worker+LLM) or `{ supplierName, lines[] }` (deterministic proposal) |
 | `GET/POST /api/tender` | dossiers; POST `{ payload }` import (+ LLM triage queued in live), `{ action: 'update', payload }`, `{ action: 'triage', id }` |
@@ -93,12 +104,12 @@ tests/e2e/        Playwright specs written against the previous UI — rewrite t
 
 ### Commands (`src/server/service.ts`; full payloads in `docs/api.md`)
 Queries (read-only, never write): `explain`, `counterfactual`, `simulate`, `question-add` (draft + simulation), `reweight` (draft + simulation), `calibration-propose` (proposal or insufficient_data), `identity-candidates`, `config-export`.
-Admin mutations: `publish`, `rollback`, `template-add {taxonomy}`, `service-clone`, `service-archive`, `config-import`, `budgets-update`, `source-update` (never `live_tested` by hand), `recalculate`, `company`, `company-update`, `company-remove`, `resolve {companyId,legalId,reason}`, `evidence-add` (analyst evidence -> review), `evidence-review`, `accounting {csv}`, `decision-queue {id}`, `tender-import`, `tender-update`, `catalog-propose`, `catalog-apply`, `catalog-discard`, `supplier-update`, `demo-seed-apply`, `demo-research`.
+Admin mutations: `companies-import {csv}`, `tender-decision {id,decision:bid|no_bid,reason}`, `publish`, `rollback`, `template-add {taxonomy}`, `service-clone`, `service-archive`, `config-import`, `budgets-update`, `source-update` (never `live_tested` by hand), `recalculate`, `company`, `company-update`, `company-remove`, `resolve {companyId,legalId,reason}`, `evidence-add` (analyst evidence -> review), `evidence-review`, `accounting {csv}`, `decision-queue {id}`, `tender-import`, `tender-update`, `catalog-propose`, `catalog-apply`, `catalog-discard`, `supplier-update`, `demo-seed-apply`, `demo-research`.
 Sales + admin: `feedback`, `decision`, `decision-edit {id,draft}` (new contentHash), `decision-review {id,decision,reason,contentHash}`, `explain`, `counterfactual`, `draft`, `save-draft`, `demo-confirm`.
 
 Every command validates with Zod. Mutations run inside `mutate()` (serialised per tenant, optimistic revision in live mode) and append an audit entry; queries only `load()`.
 
-## Frontend contract for Claude Design (UI is not in this repo's backend scope)
+## Frontend (implemented in src/ui from the Claude Design file; contract below still applies)
 - Home "My Priorities": use `priorities[]` from `GET /api/workspace`; service selector first; columns company, service, P, stage+momentum, main reason, freshness, K/C, relationship, owner, next step; group by `band`; show `gates` as labels, never colour alone; the score tooltip says "priority, not purchase probability".
 - Company Card: `state.evaluations` (contributions with `points/decay/evidenceIds`), `state.evidence` (quote, url, dates, sourceType, status, uncertainty), `state.predictions` (stage, stageReason, momentum, series, window, observedSequence), command `explain` for the narrative. Facts / interpretation / recommendation must be visually separate.
 - Signal Builder: edit a `Service` (questions with `category`, `importance`, `kind`, `group`, `halfLife`, examples; criteria with `required`), call `simulate` to get `detail.rows` (before/after, rank, band, blocked) and `detail.explanation`, then `publish`; `rollback` restores versions; `question-add` returns a draft + simulation for a typed question.
@@ -118,8 +129,15 @@ npm.cmd run check:setup   # credential presence only
 ```
 Env: copy `.env.example` → `.env.local` (scripts load `.env.local`, not `.env`). Apply migrations in order to the confirmed Supabase project; never disable RLS to make tests pass.
 
+## Operating without an LLM (decided 26 Sep 2026)
+OpenAI is optional. Without `OPENAI_API_KEY`/`OPENAI_MODEL`: live research = Firecrawl + `extractByRules` (candidates in `review`, a human validates and may confirm the event date via `evidence-review {eventDate}`); URL cold start = page headings (`supplierFromHeadings`) as draft proposals; tender triage = deterministic CPV/keywords. `npm run eval:rules [n]` scores the rules extractor against the reviewed real-company seed (read-only, paced for the Firecrawl ~10 req/min plan limit; provider retries wait 20-60 s on rate limits).
+Measured 26 Sep 2026 on 18 reachable seed pages: recall 17/21 reviewed signals (81%; EN 5/5, RO 12/16), 14 additional candidates for review, 1 penalty candidate. Label: Verified (small sample).
+
 ## Status (26 Sep 2026, evening)
 Reference-pack companies (Lufthansa, DHL) are `identity: candidate` with real event dates from the located sources; multi-year programme questions in the Intelligent Automation template use a 365-day half-life. `scripts/verify-live.mjs` (npm `verify:live`) checks reachability of DB, queue, Supabase, Firecrawl, OpenAI and HubSpot read-only; `scripts/apply-migrations.md` gives the migration order for the dev project.
+
+### UI wired to the backend (26 Sep 2026, night)
+The Claude Design file (LeadRadar.html, artifact LfWdhgQt234GLPbsAc5vXk) is implemented in `src/ui` against the real API: every number is computed (no hard-coded scores); the design's fictional companies/tenders are seeded as labelled synthetic data. Backend changes made for it: `companies-import`, `tender-decision`, `Tender.goDecision/context`, `Company.region`, CPV-first tender relevance (`relevantServices`), GET `/api/session`, and `materiallySame()` so unrelated recalculations keep evaluation ids (open cases stay valid; material changes still expire approvals). Verified: typecheck, lint, 146 unit tests, 10 Playwright e2e, `next build`, screenshot review of all screens (dark, light, 390 px).
 
 ### Backend v7.1 (26 Sep 2026, late evening)
 Added: read-only query commands (no writes), counterfactual/reweight/calibration proposals, analyst evidence entry, company update/remove, service archive, budgets + daily cost cap, source registry updates, decision edit + 7-day expiry, ANAF CUI verification (`/api/identity`), HubSpot read-only lookup (links confirmed companies, sets relationship), 3-attempt outbox cap, signed tender webhook + worker import/triage, LLM tender triage queued on import, scheduled daily refresh, member management, session refresh + rate limits, `/api/jobs` polling, `summary` read model, migration 0004, `docs/api.md`.

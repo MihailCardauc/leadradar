@@ -1,6 +1,6 @@
 import pg from 'pg';
 import { queue, QUEUES, REFRESH_CRON, type JobData, type ResearchJobData, type CatalogJobData, type TenderJobData, type TenderInboundJobData, type RefreshJobData } from '../server/queue';
-import { research, extractCatalog, triageTender } from '../server/providers';
+import { research, extractCatalog, triageTender, llmConfigured, extractorLabel } from '../server/providers';
 import { normalizeWorkspace, type Workspace } from '../domain/model';
 import { handleResearch, handleCatalog, handleTender, handleTenderInbound, refreshWorkspace, type Update } from './handlers';
 
@@ -11,7 +11,6 @@ import { handleResearch, handleCatalog, handleTender, handleTenderInbound, refre
  */
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL required');
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
-const llmConfigured = () => Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_MODEL);
 
 /**
  * One transaction per aggregate write. `actor` is the requesting member (membership re-checked here) or null for
@@ -53,5 +52,5 @@ await boss.work<RefreshJobData>(QUEUES.refresh, { batchSize: 1 }, async jobs => 
 });
 await boss.schedule(QUEUES.refresh, REFRESH_CRON(), {}, { tz: 'UTC' });
 
-console.log(`LeadRadar worker ready. Queues: ${Object.values(QUEUES).join(', ')}. Concurrency 1; retries 2; refresh cron "${REFRESH_CRON()}" UTC; LLM ${llmConfigured() ? 'configured' : 'not configured'}.`);
+console.log(`LeadRadar worker ready. Queues: ${Object.values(QUEUES).join(', ')}. Concurrency 1; retries 2; refresh cron "${REFRESH_CRON()}" UTC; extractor ${extractorLabel()}.`);
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => { await boss.stop(); await pool.end(); process.exit(0); });

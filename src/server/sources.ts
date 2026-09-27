@@ -30,7 +30,7 @@ export function integrationStatus(mode: 'demo' | 'live', tenant: string) {
   return {
     database: mode === 'live' ? 'Connected · authenticated workspace read' : 'Local demo storage',
     firecrawl: process.env.FIRECRAWL_API_KEY ? 'Configured · request not yet verified' : 'API key required',
-    openai: process.env.OPENAI_API_KEY && process.env.OPENAI_MODEL ? 'Configured · request not yet verified' : 'API key and model required',
+    openai: process.env.OPENAI_API_KEY && process.env.OPENAI_MODEL ? 'Configured · request not yet verified' : 'Not configured · rules extractor and page headings in use (candidates reviewed by a human)',
     hubspot: process.env.HUBSPOT_ACCESS_TOKEN && process.env.HUBSPOT_TENANT_ID === tenant ? 'Configured · verify test account' : 'Test account authorization required',
     worker: process.env.DATABASE_URL ? 'Configured · start worker separately' : 'Database connection required',
     registry: 'ANAF public registry · verified per explicit identity check',
