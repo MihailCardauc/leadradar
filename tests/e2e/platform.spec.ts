@@ -2,8 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 
 /** End-to-end flows on an isolated demo workspace (synthetic data; no web, AI or CRM requests). */
 async function openDemo(page: Page) {
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Explore the demo' }).click();
+  await page.goto('/app'); // no sign-in: a fresh isolated demo workspace opens directly
   await expect(page.getByRole('heading', { name: 'Radar', exact: true })).toBeVisible({ timeout: 20000 });
 }
 const nav = (page: Page, name: string) => page.getByRole('navigation', { name: 'Main' }).getByRole('tab', { name, exact: true }).click();

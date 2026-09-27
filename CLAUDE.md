@@ -78,8 +78,8 @@ src/ui/           the product UI (design: LeadRadar.html, Lunaris tokens in src/
   api.ts          browser client (demo cookie | Supabase bearer + x-tenant-id in sessionStorage, one refresh on 401)
   store.tsx       AppProvider: per-service read model, run/query/call with refresh + toasts, job polling, navigation
   derive.ts       pure view models (contribution bar, queue, metrics, source bars, tender urgency) — unit-tested
-  App.tsx         session gate → shell (Radar, Companies, Tenders, Signal Builder, Actions, Metrics, How it works)
-  screens/        Radar + CompanySheet, Companies, Tenders, Builder, Actions, Metrics, How, Welcome, Settings, ImportSheet
+  App.tsx         auto demo session → shell (Radar, Companies, Tenders, Signal Builder, Actions, Metrics, How it works)
+  screens/        Radar + CompanySheet, Companies, Tenders, Builder, Actions, Metrics, How, Settings, ImportSheet
 ```
 
 ## API (all JSON; same-origin `Origin` header required on POST; demo cookie `lr_demo` or `Authorization: Bearer <supabase jwt>` + `x-tenant-id`)
@@ -109,6 +109,11 @@ Sales + admin: `feedback`, `decision`, `decision-edit {id,draft}` (new contentHa
 
 Every command validates with Zod. Mutations run inside `mutate()` (serialised per tenant, optimistic revision in live mode) and append an audit entry; queries only `load()`.
 
+## Routes and sign-in (27 Sep 2026)
+- `/` = static marketing site (`public/index.html` + `public/blog/`, `public/legal/`, `public/presentation.html` placeholder), served via a rewrite in `next.config.ts`. Header: See GitHub (repo), See presentation (placeholder until the deck exists), See the demo → `/app`.
+- `/app` = the product UI. **Sign-in UI is disabled for now:** the app opens directly into an isolated demo workspace (`POST /api/session {action:'demo'}` on first visit; "Reset demo" in Settings). The backend auth, tenant checks, RLS and live-mode routes are unchanged; re-enable a sign-in screen before any live/pilot use.
+- E2E: `E2E_BASE_URL=http://localhost:3000 npx playwright test` reuses a running dev server (only one `next dev` per project).
+
 ## Frontend (implemented in src/ui from the Claude Design file; contract below still applies)
 - Home "My Priorities": use `priorities[]` from `GET /api/workspace`; service selector first; columns company, service, P, stage+momentum, main reason, freshness, K/C, relationship, owner, next step; group by `band`; show `gates` as labels, never colour alone; the score tooltip says "priority, not purchase probability".
 - Company Card: `state.evaluations` (contributions with `points/decay/evidenceIds`), `state.evidence` (quote, url, dates, sourceType, status, uncertainty), `state.predictions` (stage, stageReason, momentum, series, window, observedSequence), command `explain` for the narrative. Facts / interpretation / recommendation must be visually separate.
@@ -123,7 +128,7 @@ npm.cmd ci                # locked deps incl. project-local Node 22
 npm.cmd run typecheck     # must pass
 npm.cmd run lint
 npm.cmd test              # vitest unit suite (tests/unit)
-npm.cmd run dev           # Next.js; demo mode works without credentials (button "Explore the demo" / POST /api/session {action:'demo'})
+npm.cmd run dev           # Next.js: landing at http://localhost:3000, app at /app (opens a demo workspace directly, no credentials)
 npm.cmd run worker        # needs DATABASE_URL (+ FIRECRAWL_API_KEY, OPENAI_API_KEY, OPENAI_MODEL for live jobs); schedules the daily refresh
 npm.cmd run check:setup   # credential presence only
 ```
