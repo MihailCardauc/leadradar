@@ -8,7 +8,7 @@ import { fmtDate } from '../derive';
 type Member = { userId: string; email: string | null; role: string };
 
 /** Workspace settings: session, integrations (presence only), budgets, sources, members, configuration export. */
-export function Settings({ onClose, onSignOut }: { onClose: () => void; onSignOut: () => void }) {
+export function Settings({ onClose, onReset }: { onClose: () => void; onReset: () => void }) {
   const { view, isAdmin, run, busy, toast } = useApp();
   const b = view.state.budgets!; const [budgets, setBudgets] = useState(b);
   const [members, setMembers] = useState<Member[] | null>(null); const [email, setEmail] = useState(''); const [role, setRole] = useState<'admin' | 'sales'>('sales');
@@ -31,7 +31,7 @@ export function Settings({ onClose, onSignOut }: { onClose: () => void; onSignOu
       {view.mode === 'live' && <div><h3>Members</h3>{members === null ? <p className="small muted">Loading…</p> : <ul className="trace" style={{ margin: '8px 0' }}>{members.map(m => <li key={m.userId}>{m.email ?? m.userId} · {m.role}{isAdmin && m.email !== session.get()?.email && <> · <button className="linkish" onClick={async () => { try { await api('/api/members', { action: 'remove', userId: m.userId }); setMembers(members.filter(x => x.userId !== m.userId)); } catch (e) { toast(e instanceof Error ? e.message : 'Failed'); } }}>remove</button></>}</li>)}</ul>}
         {isAdmin && <div className="row" style={{ gap: 'var(--s2)' }}><input className="text" style={{ flex: '2 1 200px' }} placeholder="Existing account email" value={email} onChange={e => setEmail(e.target.value)} /><select className="text" style={{ width: 'auto' }} value={role} onChange={e => setRole(e.target.value as 'admin' | 'sales')}><option value="sales">sales</option><option value="admin">admin</option></select>
           <button className="btn sm" disabled={!email.includes('@')} onClick={async () => { try { await api('/api/members', { action: 'add', email, role }); setEmail(''); setMembers((await api<{ members: Member[] }>('/api/members')).members); toast('Member added'); } catch (e) { toast(e instanceof Error ? e.message : 'Failed'); } }}>Add</button></div>}</div>}
-      <div className="row" style={{ justifyContent: 'space-between' }}>{isAdmin ? <button className="btn" onClick={exportConfig}>Export configuration</button> : <span />}<Badge tone="outline">No secrets are shown or exported</Badge><button className="btn danger" onClick={onSignOut}>Sign out</button></div>
+      <div className="row" style={{ justifyContent: 'space-between' }}>{isAdmin ? <button className="btn" onClick={exportConfig}>Export configuration</button> : <span />}<Badge tone="outline">No secrets are shown or exported</Badge><button className="btn danger" onClick={() => { onClose(); onReset(); }} title="Discards this demo workspace and opens a fresh one">Reset demo</button></div>
     </div>
   </Overlay>;
 }

@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     assertOrigin(request); const p = schema.parse(await body(request));
     if (p.action === 'demo') {
       if (process.env.LEADRADAR_DISABLE_DEMO === 'true') throw new AppError(403, 'Demo disabled');
-      rateLimit(`demo:${clientKey(request)}`, 10, 60000);
+      rateLimit(`demo:${clientKey(request)}`, 30, 60000);
       const tenant = randomBytes(32).toString('hex');
       await mutate({ tenant, user: 'demo-user', role: 'admin', mode: 'demo' }, () => null);
       const r = NextResponse.json({ mode: 'demo' }); r.cookies.set('lr_demo', tenant, { httpOnly: true, sameSite: 'strict', secure: new URL(request.url).protocol === 'https:', path: '/', maxAge: 604800 }); return r;
